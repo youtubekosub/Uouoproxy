@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SenninProxy</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/uv/uv.bundle.js"></script>
+    <script src="/uv/uv.config.js"></script>
+    <script src="/baremux/index.js"></script>
+
+    <script>
+    if ("serviceWorker" in navigator) {
+        window.addEventListener("load", async () => {
+            await navigator.serviceWorker.register("/uv/sw.js");
+        });
+    }
+    </script>
+
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --toolbar-color: #1e293b;
+            --tab-active: #1e293b;
+            --tab-inactive: #0f172a;
+            --text-color: #f1f5f9;
+            --accent-color: #38bdf8;
+            --border-color: #334155;
+            --hover-bg: rgba(255, 255, 255, 0.1);
+        }
+
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            font-family: 'Segoe UI', 'Inter', -apple-system, sans-serif; 
+            overflow: hidden; 
+            background: var(--bg-color); 
+            color: var(--text-color); 
+        }
+
+        #progress-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            z-index: 9999;
+            background: transparent;
+            pointer-events: none;
+        }
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: var(--accent-color);
+            box-shadow: 0 0 10px var(--accent-color);
+            transition: width 0.4s ease, opacity 0.4s ease;
+            opacity: 0;
+        }
+
+        #tab-bar {
+            display: flex;
+            align-items: flex-end;
+            padding: 6px 10px 0;
+            background: var(--bg-color);
+            gap: 2px;
+            height: 42px;
+            user-select: none;
+        }
+
+        #tabs-container {
+            display: flex;
+            gap: 2px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        #tabs-container::-webkit-scrollbar { display: none; }
+
+        .tab {
+            background: var(--tab-inactive);
+            padding: 8px 16px;
+            border-radius: 10px 10px 0 0;
+            font-size: 12px;
+            min-width: 120px;
+            max-width: 200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            border: 1px solid transparent;
+            color: rgba(241, 245, 249, 0.7);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            animation: tabOpen 0.3s ease-out;
+            border-bottom: none;
+        }
+
+        @keyframes tabOpen {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .tab.active { 
+            background: var(--tab-active); 
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--tab-active);
+            z-index: 2;
+        }
+
+        .close-tab {
+            margin-left: 8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .close-tab:hover { background: rgba(255,255,255,0.2); }
+
+        #toolbar {
+            height: 44px;
+            background: var(--toolbar-color);
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 12px;
+            border-bottom: 1px solid var(--border-color);
+            z-index: 3;
+            position: relative;
+        }
+
+        .nav-button {
+            background: none;
+            border: none;
+            color: var(--text-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+        .nav-button:hover { background: var(--hover-bg); }
+        .nav-button i { width: 18px; height: 18px; }
+
+        #address-bar-container {
+            flex-grow: 1;
+            background: #0f172a;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            height: 32px;
+            border: 1px solid var(--border-color);
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+
+        #address-bar-container:focus-within { 
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+
+        #urlInput {
+            width: 100%;
+            background: none;
+            border: none;
+            color: white;
+            outline: none;
+            font-size: 13px;
+            letter-spacing: 0.3px;
+        }
+
+        #searchButton {
+            background: none;
+            border: none;
+            color: var(--accent-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            transition: transform 0.1s;
+        }
+
+        #searchButton:hover {
+            transform: scale(1.1);
+        }
+
+        #view-container {
+            height: calc(100% - 86px);
+            background: #ffffff;
+            position: relative;
+        }
+
+        .iframeWindow {
+            width: 100%; 
+            height: 100%; 
+            border: none;
+            display: none;
+            background: #141414;
+        }
+        .iframeWindow.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .add-tab { 
+            background: none; 
+            border: none; 
+            color: white; 
+            font-size: 20px; 
+            cursor: pointer; 
+            width: 28px; 
+            height: 28px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            border-radius: 50%; 
+            margin-bottom: 6px; 
+            margin-left: 4px; 
+            transition: background 0.2s; 
+        }
+        .add-tab:hover { background: var(--hover-bg); }
+    </style>
+</head>
+<body>
+
+<div id="progress-container">
+    <div id="progress-bar"></div>
+</div>
+
+<div id="tab-bar">
+    <div id="tabs-container">
+    </div>
+    <button id="addTabBtn" class="add-tab" title="New Tab">+</button>
+</div>
+
+<div id="toolbar">
+    <button class="nav-button" id="backBtn" title="Back">
+        <i data-lucide="arrow-left"></i>
+    </button>
+    <button class="nav-button" id="forwardBtn" title="Forward">
+        <i data-lucide="arrow-right"></i>
+    </button>
+    <button class="nav-button" id="reloadBtn" title="Reload">
+        <i data-lucide="rotate-cw"></i>
+    </button>
+
+    <div id="address-bar-container">
+        <input type="text" id="urlInput" placeholder="Enter URL here" autocomplete="off">
+        <button id="searchButton" title="Search">
+            <i data-lucide="search"></i>
+        </button>
+    </div>
+</div>
+
+<div id="view-container">
+</div>
+
+<script>
+lucide.createIcons();
+
+let tabCount = 0;
+
+function createNewTab() {
+    tabCount++;
+    const tabId = `tab-${tabCount}`;
+    
+    const tab = document.createElement('div');
+    tab.className = 'tab';
+    tab.id = `btn-${tabId}`;
+    tab.innerHTML = `
+        <span class="tab-title">New Tab</span>
+        <span class="close-tab" onclick="closeTab(event, '${tabId}')">×</span>
+    `;
+    tab.onclick = () => switchTab(tabId);
+    document.getElementById('tabs-container').appendChild(tab);
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'iframeWindow';
+    iframe.id = tabId;
+    
+    iframe.src = "home.html";
+    
+    iframe.onload = () => {
+        const pb = document.getElementById('progress-bar');
+        pb.style.width = '100%';
+        setTimeout(() => {
+            pb.style.opacity = '0';
+            setTimeout(() => { pb.style.width = '0%'; }, 400);
+        }, 200);
+    };
+
+    document.getElementById('view-container').appendChild(iframe);
+
+    switchTab(tabId);
+}
+
+function switchTab(tabId) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.iframeWindow').forEach(f => f.classList.remove('active'));
+
+    document.getElementById(`btn-${tabId}`).classList.add('active');
+    const activeIframe = document.getElementById(tabId);
+    activeIframe.classList.add('active');
+
+    window.iframeWindow = activeIframe;
+    
+    const currentUrl = activeIframe.dataset.rawUrl || "";
+    document.getElementById('urlInput').value = currentUrl;
+}
+
+function closeTab(event, tabId) {
+    event.stopPropagation();
+    const tabBtn = document.getElementById(`btn-${tabId}`);
+    const iframe = document.getElementById(tabId);
+    
+    const wasActive = tabBtn.classList.contains('active');
+    
+    tabBtn.remove();
+    iframe.remove();
+
+    if (wasActive) {
+        const remainingTabs = document.querySelectorAll('.tab');
+        if (remainingTabs.length > 0) {
+            const lastTabId = remainingTabs[remainingTabs.length - 1].id.replace('btn-', '');
+            switchTab(lastTabId);
+        } else {
+            createNewTab();
+        }
+    }
+}
+
+document.getElementById('addTabBtn').onclick = createNewTab;
+
+document.getElementById('backBtn').onclick = () => {
+    if (window.iframeWindow && window.iframeWindow.contentWindow) {
+        window.iframeWindow.contentWindow.history.back();
+    }
+};
+document.getElementById('forwardBtn').onclick = () => {
+    if (window.iframeWindow && window.iframeWindow.contentWindow) {
+        window.iframeWindow.contentWindow.history.forward();
+    }
+};
+document.getElementById('reloadBtn').onclick = () => {
+    if (window.iframeWindow && window.iframeWindow.contentWindow) {
+        window.iframeWindow.contentWindow.location.reload();
+    }
+};
+
+createNewTab();
+
+const connection = new BareMux.BareMuxConnection("/baremux/worker.js")
+const bareUrl = (location.protocol === "https:" ? "https" : "http") + "://" + location.host + "/bare/"
+
+document
+    .getElementById("urlInput")
+    .addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            document.getElementById("searchButton").click();
+        }
+    });
+
+document.getElementById("searchButton").onclick = async function (event) {
+    event.preventDefault();
+
+    let url = document.getElementById("urlInput").value; 
+    let searchUrl = "https://duckduckgo.com/?q=";
+
+    if (!url.includes(".")) {
+        url = searchUrl + encodeURIComponent(url);
+    } else {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) { 
+            url = "https://" + url;
+        }
+    }
+    
+    const pb = document.getElementById('progress-bar');
+    pb.style.opacity = '1';
+    pb.style.width = '30%';
+    setTimeout(() => { if(pb.style.width === '30%') pb.style.width = '70%'; }, 500);
+
+    window.iframeWindow.dataset.rawUrl = url;
+    const activeTab = document.querySelector('.tab.active .tab-title');
+    if (activeTab) activeTab.innerText = url.split('/') || url;
+
+	if (!await connection.getTransport()) {
+		await connection.setTransport("/baremod/index.mjs", [bareUrl]);
+	}
+    iframeWindow.src = __uv$config.prefix + __uv$config.encodeUrl(url);
+};
+</script>
+</body>
+</html>
